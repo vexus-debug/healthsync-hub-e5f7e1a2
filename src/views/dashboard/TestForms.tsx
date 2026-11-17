@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
-import { Search, ArrowRight, Plus, Loader2, Printer, Download } from "lucide-react";
+import { Search, ArrowRight, Plus, Loader2, Printer, Download, Barcode } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { printSpecimenLabels } from "@/lib/printLabels";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "@/lib/router-compat";
 import { TestStatus } from "@/lib/labCatalog";
@@ -17,7 +20,10 @@ import { DateRangeFilter, DateRange, dateRangeCutoff, inRange } from "@/componen
 import { downloadCsv } from "@/lib/csvExport";
 import { useRealtime } from "@/lib/useRealtime";
 
-type Filter = "all" | TestStatus;
+type Filter = "all" | TestStatus | "Rejected";
+type SF = { specimen_status?: string | null; status: string };
+const stageOf = (f: SF) => (f.status === "Completed" ? "Completed" : f.specimen_status ?? "Registered");
+const stageLabel = (s: string) => (s === "Received at Bench" ? "At Bench" : s === "Rejected" ? "Rejected — Recollect" : s);
 
 const TestForms = ({ defaultFilter = "all" as Filter, title = "Test Forms", subtitle = "All laboratory test forms" }) => {
   const { data: forms = [], isLoading } = useQuery({
@@ -36,7 +42,7 @@ const TestForms = ({ defaultFilter = "all" as Filter, title = "Test Forms", subt
       const matchQ = !q ||
         f.serial.toLowerCase().includes(q.toLowerCase()) ||
         f.patient_name.toLowerCase().includes(q.toLowerCase());
-      const matchF = filter === "all" || f.status === filter;
+      const matchF = filter === "all" || (filter === "Rejected" ? stageOf(f as SF) === "Rejected" : f.status === filter);
       const matchD = inRange(f.date_collected, cutoff);
       return matchQ && matchF && matchD;
     });
@@ -88,10 +94,11 @@ const TestForms = ({ defaultFilter = "all" as Filter, title = "Test Forms", subt
         <CardContent className="p-0">
           <div className="p-4 border-b border-border">
             <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
-              <TabsList>
+              <TabsList className="flex-wrap h-auto">
                 <TabsTrigger value="all">All ({forms.length})</TabsTrigger>
                 <TabsTrigger value="Pending">Pending ({forms.filter(f => f.status === "Pending").length})</TabsTrigger>
                 <TabsTrigger value="Processing">Processing ({forms.filter(f => f.status === "Processing").length})</TabsTrigger>
+                <TabsTrigger value="Rejected">Needs Recollection ({forms.filter(f => stageOf(f as SF) === "Rejected").length})</TabsTrigger>
                 <TabsTrigger value="Completed">Completed ({forms.filter(f => f.status === "Completed").length})</TabsTrigger>
               </TabsList>
             </Tabs>
@@ -131,11 +138,22 @@ const TestForms = ({ defaultFilter = "all" as Filter, title = "Test Forms", subt
                       <TableCell className="text-sm text-muted-foreground">
                         {new Date(f.date_collected).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
                       </TableCell>
-                      <TableCell><StatusBadge status={f.status as TestStatus} /></TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusBadge status={f.status as TestStatus} />
+                          <Badge variant={stageOf(f as SF) === "Rejected" ? "destructive" : "secondary"} className="text-[10px]">
+                            {stageLabel(stageOf(f as SF))}
+                          </Badge>
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => printTestForm(f)} title="Print test form">
                             <Printer className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="outline" size="sm" title="Print tube labels"
+                            onClick={async () => { if (!(await printSpecimenLabels(f as never))) toast.error("Allow pop-ups to print labels"); }}>
+                            <Barcode className="h-3.5 w-3.5" />
                           </Button>
                           <Button asChild variant="soft" size="sm">
                             <Link to={`/dashboard/forms/${f.serial}`}>

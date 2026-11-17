@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Save, ListChecks, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
+import { printSpecimenLabels } from "@/lib/printLabels";
 import { useAuth } from "@/hooks/useAuth";
 import { createTestForm, getNextSerial } from "@/lib/supabaseQueries";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -96,6 +97,7 @@ const NewTestForm = () => {
   })();
 
   const [saving, setSaving] = useState(false);
+  const [autoLabels, setAutoLabels] = useState(true);
   const [suggestedSerial, setSuggestedSerial] = useState("");
 
   useEffect(() => {
@@ -165,6 +167,11 @@ const NewTestForm = () => {
       });
       queryClient.invalidateQueries({ queryKey: ["test_forms"] });
       toast.success("Test form created", { description: `Serial: ${created.serial}` });
+      if (autoLabels) {
+        const lf = { ...created, tests_requested: created.tests_requested ?? tests } as never;
+        const ok = await printSpecimenLabels(lf);
+        if (!ok) toast("Print tube labels?", { duration: 15000, action: { label: "Print", onClick: () => { void printSpecimenLabels(lf); } } });
+      }
       navigate(openAfter ? `/dashboard/forms/${created.serial}` : "/dashboard/forms");
     } catch (err: any) {
       toast.error(err.message || "Failed to create form");
@@ -313,7 +320,11 @@ const NewTestForm = () => {
           <p className="text-xs text-muted-foreground">
             Serial: <span className="font-mono font-semibold text-primary">{form.serial}</span> · {tests.length} test(s)
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+              <input type="checkbox" checked={autoLabels} onChange={(e) => setAutoLabels(e.target.checked)} className="accent-primary" />
+              Print tube labels
+            </label>
             <Button type="button" variant="outline" onClick={onSubmit(false)} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Form
             </Button>
